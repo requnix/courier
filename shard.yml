@@ -1,0 +1,13 @@
+name: courier
+version: 0.1.0
+
+authors:
+  - Michael Prins <michael.prins@me.com>
+
+crystal: 0.26.1
+
+license: MIT
+
+dependencies:
+  habitat:
+    github: luckyframework/habitat
