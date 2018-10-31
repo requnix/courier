@@ -5,20 +5,22 @@ require "./session"
 require "../store/memory"
 
 class Courier::SMTP::Server
+  getter log : Logger
+
   Habitat.create do
     setting port : Int32 = 25
-    setting debug : Bool = true
+    setting log : Logger = Logger.new(STDOUT, Logger::INFO)
     setting store : Courier::Store::Base = Courier::Store::Memory.new
   end
 
-  def initialize(@logger = Logger.new(STDOUT))
-    @logger.level = settings.debug ? Logger::DEBUG : Logger::INFO
+  def initialize
+    @log = settings.log
     @server = TCPServer.new(settings.port)
   end
 
   def run
-    @logger.info "#{self.class} running on port #{settings.port}"
-    # Accept connections in separate fibers so we can handle multiple concurrent connections
+    log.info "#{self.class} running on port #{settings.port}"
+    # Spawn fibers so connections are processed concurrently
     spawn do
       loop do
         spawn handle_session(@server.accept)
@@ -31,7 +33,7 @@ class Courier::SMTP::Server
 
     client_addr = client.remote_address
     connection_id = client.object_id
-    @logger.info "#{self.class} connection #{connection_id} from #{client_addr} accepted"
+    log.info "#{self.class} connection #{connection_id} from #{client_addr} accepted"
     session.greet
 
     # Keep processing commands until somebody closes the connection
@@ -44,12 +46,12 @@ class Courier::SMTP::Server
       # The first word of a line should contain the command
       input = input.to_s
       command = input.split(' ', 2).first.upcase.strip
-      @logger.debug "#{self.class} connection #{connection_id} < #{input.strip}"
+      log.debug "#{self.class} connection #{connection_id} < #{input.strip}"
       session.process_command(command, input)
     end
-    @logger.info "#{self.class} connection #{connection_id} from #{client_addr} closed"
+    log.info "#{self.class} connection #{connection_id} from #{client_addr} closed"
   rescue ex
-    @logger.error "#{self.class} #{connection_id} ! #{ex}"
+    log.error "#{self.class} #{connection_id} ! #{ex}"
     client.close
   end
 end

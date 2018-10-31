@@ -1,4 +1,5 @@
 require "option_parser"
+require "./courier/store/memory"
 require "./courier/smtp/server"
 
 OptionParser.parse! do |parser|
@@ -22,6 +23,8 @@ OptionParser.parse! do |parser|
   end
 end
 
+Courier::SMTP::Server.settings.log = Logger.new(STDOUT, Logger::DEBUG)
+Courier::SMTP::Server.settings.store = Courier::Store::Memory.new
 smtp_server = Courier::SMTP::Server.new
 smtp_server.run
 sleep

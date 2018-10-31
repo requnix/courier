@@ -28,15 +28,11 @@ class Courier::SMTP::Session
     554 => "Transaction failed",
   }
 
-  def initialize(@client : TCPSocket, @store : Courier::Store::Base, @logger = Logger.new(STDOUT))
-    @logger.level = Server.settings.debug ? Logger::DEBUG : Logger::INFO
-    @state = State.new
+  getter log : Logger
 
-    # rset
-    @from = ""
-    @to = ""
-    @data = ""
-    @sending_data = false
+  def initialize(@client : TCPSocket, @store : Courier::Store::Base)
+    @log = Server.settings.log
+    @state = State.new
   end
 
   def process_command(command : String, full_data : String)
@@ -46,10 +42,10 @@ class Courier::SMTP::Session
     when "NOOP"         then respond(250)
     when "MAIL"         then mail_from(full_data)
     when "QUIT"         then quit
-    when "RCPT"         then rcpt_to(full_data)
+    when "RCPT"         then recipient(full_data)
     when "RSET"         then rset
     else
-      if @sending_data
+      if @state.sending_data
         append_data(full_data)
       else
         respond(500)
@@ -64,6 +60,8 @@ class Courier::SMTP::Session
 
   # Close connection
   def quit
+    # Persist emails in @state.pending_mails to a Courier::Store::Base
+    @state.pending_mails.each { |mail| @store.persist(mail) }
     respond(221)
     @client.close
   end
@@ -71,7 +69,9 @@ class Courier::SMTP::Session
   # Store sender address
   def mail_from(full_data)
     if /^MAIL FROM:/ =~ full_data.upcase
-      @from = full_data.gsub(/^MAIL FROM:\s*/i, "").gsub(/[\r\n]/, "")
+      @state.in_progress.sender = Courier::Address.new(
+        full_data.gsub(/^MAIL FROM:\s*/i, "").gsub(/[\r\n]/, "")
+      )
       respond(250)
     else
       respond(500)
@@ -79,9 +79,21 @@ class Courier::SMTP::Session
   end
 
   # Store recepient address
-  def rcpt_to(full_data)
+  def recipient(full_data)
     if /^RCPT TO:/ =~ full_data.upcase
-      @to = full_data.gsub(/^RCPT TO:\s*/i, "").gsub(/[\r\n]/, "")
+      @state.in_progress.recipients["TO"] << Courier::Address.new(
+        full_data.gsub(/^RCPT TO:\s*/i, "").gsub(/[\r\n]/, "")
+      )
+      respond(250)
+    elsif /^RCPT CC:/ =~ full_data.upcase
+      @state.in_progress.recipients["CC"] << Courier::Address.new(
+        full_data.gsub(/^RCPT CC:\s*/i, "").gsub(/[\r\n]/, "")
+      )
+      respond(250)
+    elsif /^RCPT BCC:/ =~ full_data.upcase
+      @state.in_progress.recipients["CC"] << Courier::Address.new(
+        full_data.gsub(/^RCPT BCC:\s*/i, "").gsub(/[\r\n]/, "")
+      )
       respond(250)
     else
       respond(500)
@@ -90,17 +102,14 @@ class Courier::SMTP::Session
 
   # Mark client sending data
   def data
-    @sending_data = true
-    @data = ""
+    @state.start_data!
     respond(354)
   end
 
   # Reset current session
   def rset
-    @from = ""
-    @to = ""
-    @data = ""
-    @sending_data = false
+    @state.reset!
+    respond(250)
   end
 
   # Append data to incoming mail message
@@ -108,21 +117,23 @@ class Courier::SMTP::Session
   # full_data == "." indicates the end of the message
   def append_data(full_data : String)
     if full_data.gsub(/[\r\n]/, "") == "."
-      # @store.add(@from, @to, @data.to_s)
-      # TODO: Persist message
-      respond(250)
-      @logger.info "Received mail from #{@from} to #{@to}"
+      log.info "Received mail from #{@state.in_progress.sender.to_s} to #{@state.in_progress.recipients["TO"][0].to_s}"
+      if @state.finalize_mail!
+        respond(250)
+      else
+        respond(554)
+      end
     else
-      @data = @data + full_data
+      @state.in_progress.body = @state.in_progress.body + full_data
     end
   end
 
   # Respond with a standard SMTP response code
   def respond(code : Int32)
-    @logger.debug "#{@client.object_id} > #{code} #{RESPONSES[code]}"
+    log.debug "#{@client.object_id} > #{code} #{RESPONSES[code]}"
     @client.write "#{code} #{RESPONSES[code]}\r\n".to_slice
   rescue ex
-    @logger.error "#{@client.object_id} ! #{ex}"
+    log.error "#{@client.object_id} ! #{ex}"
     @client.close
   end
 end
