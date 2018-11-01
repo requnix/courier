@@ -5,13 +5,13 @@ require "./session"
 require "../store/memory"
 
 class Courier::SMTP::Server
-  getter log : Logger
-
   Habitat.create do
     setting port : Int32 = 25
-    setting log : Logger = Logger.new(STDOUT, Logger::INFO)
+    setting log : Logger = Logger.new(STDOUT)
     setting store : Courier::Store::Base = Courier::Store::Memory.new
   end
+
+  getter log : Logger
 
   def initialize
     @log = settings.log
@@ -29,12 +29,10 @@ class Courier::SMTP::Server
   end
 
   def handle_session(client : TCPSocket)
-    session = Courier::SMTP::Session.new(client, settings.store)
-
+    session = Session.new(client, settings.store)
     client_addr = client.remote_address
     connection_id = client.object_id
     log.info "#{self.class} connection #{connection_id} from #{client_addr} accepted"
-    session.greet
 
     # Keep processing commands until somebody closes the connection
     while true
@@ -49,6 +47,7 @@ class Courier::SMTP::Server
       log.debug "#{self.class} connection #{connection_id} < #{input.strip}"
       session.process_command(command, input)
     end
+
     log.info "#{self.class} connection #{connection_id} from #{client_addr} closed"
   rescue ex
     log.error "#{self.class} #{connection_id} ! #{ex}"

@@ -33,6 +33,7 @@ class Courier::SMTP::Session
   def initialize(@client : TCPSocket, @store : Courier::Store::Base)
     @log = Server.settings.log
     @state = State.new
+    respond(220)
   end
 
   def process_command(command : String, full_data : String)
@@ -51,11 +52,6 @@ class Courier::SMTP::Session
         respond(500)
       end
     end
-  end
-
-  # Send a greeting to client
-  def greet
-    respond(220)
   end
 
   # Close connection

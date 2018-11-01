@@ -1,6 +1,7 @@
 require "option_parser"
 require "./courier/store/memory"
 require "./courier/smtp/server"
+require "./courier/pop/server"
 
 OptionParser.parse! do |parser|
   parser.banner = "Usage: courier [options]"
@@ -23,8 +24,18 @@ OptionParser.parse! do |parser|
   end
 end
 
-Courier::SMTP::Server.settings.log = Logger.new(STDOUT, Logger::DEBUG)
-Courier::SMTP::Server.settings.store = Courier::Store::Memory.new
-smtp_server = Courier::SMTP::Server.new
-smtp_server.run
+# Shared
+log = Logger.new(STDOUT, Logger::DEBUG)
+store = Courier::Store::Memory.new
+
+# SMTP Server
+Courier::SMTP::Server.settings.log = log
+Courier::SMTP::Server.settings.store = store
+Courier::SMTP::Server.new.run
+
+# POP3 Server
+Courier::POP::Server.settings.log = log
+Courier::POP::Server.settings.store = store
+Courier::POP::Server.new.run
+
 sleep

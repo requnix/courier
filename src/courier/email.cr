@@ -21,8 +21,17 @@ class Courier::Email
                  @body = "")
   end
 
+  # Returns the number of octets needed to transmit the Email
+  def size
+    serialize.size
+  end
+
   def valid?
     sender && recipients["TO"].size > 0 && body.size > 0
+  end
+
+  def serialize
+    "#{body}"
   end
 
   def digest
