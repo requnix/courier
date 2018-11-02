@@ -90,9 +90,10 @@ class Courier::POP::Session
     elsif requested == :all
       response = "#{@store.count} messages (#{@store.total_size} octets)\r\n"
       @store.all.each_with_index do |email, index|
+        next if @pending_deletion.includes? email.digest
         response += "#{index} #{email.size}\r\n"
       end
-      respond true, "#{response}.\r\n"
+      respond true, "#{response}."
     else
       respond false, "INVALID MESSAGE NUMBER"
     end

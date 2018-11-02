@@ -13,7 +13,7 @@ class Courier::Store::Memory < Courier::Store::Base
 
   # Total size of all messages
   def total_size
-    @collection.map(&.size).sum
+    @collection.values.map(&.size).sum
   end
 
   # Retrieve all messages
