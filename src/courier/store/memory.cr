@@ -25,6 +25,7 @@ class Courier::Store::Memory < Courier::Store::Base
   def retrieve(index : Int)
     @collection.values[index - 1]
   end
+
   # Retrieve a message by unique identifier
   def retrieve(identifier : String)
     @collection[identifier]

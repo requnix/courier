@@ -1,5 +1,4 @@
 require "logger"
-require "./state"
 
 # A session with a client
 class Courier::SMTP::Session
@@ -28,84 +27,93 @@ class Courier::SMTP::Session
     554 => "Transaction failed",
   }
 
+  # Session State
+  getter in_progress : Courier::Email
+  getter pending_mails : Array(Courier::Email)
+  getter sending_data
+
+  # Logging
   getter log : Logger
 
   def initialize(@client : TCPSocket, @store : Courier::Store::Base)
     @log = Server.settings.log
-    @state = State.new
+    @pending_mails = [] of Courier::Email
+    @in_progress = Courier::Email.new
+    @sending_data = false
     respond(220)
   end
 
   def process_command(command : String, full_data : String)
     case command
     when "DATA"         then data
-    when "HELO", "EHLO" then respond(250)
-    when "NOOP"         then respond(250)
-    when "MAIL"         then mail_from(full_data)
+    when "HELO", "EHLO" then respond 250
+    when "NOOP"         then respond 250
+    when "MAIL"         then mail_from full_data
     when "QUIT"         then quit
-    when "RCPT"         then recipient(full_data)
+    when "RCPT"         then recipient full_data
     when "RSET"         then rset
     else
-      if @state.sending_data
-        append_data(full_data)
+      if sending_data
+        append_data full_data
       else
-        respond(500)
+        respond 500
       end
     end
   end
 
   # Close connection
   def quit
-    # Persist emails in @state.pending_mails to a Courier::Store::Base
-    @state.pending_mails.each { |mail| @store.persist(mail) }
-    respond(221)
+    # Persist emails in pending_mails to a Courier::Store::Base
+    pending_mails.each { |mail| @store.persist(mail) }
+    respond 221
     @client.close
   end
 
   # Store sender address
   def mail_from(full_data)
     if /^MAIL FROM:/ =~ full_data.upcase
-      @state.in_progress.sender = Courier::Address.new(
+      in_progress.sender = Courier::Address.new(
         full_data.gsub(/^MAIL FROM:\s*/i, "").gsub(/[\r\n]/, "")
       )
-      respond(250)
+      respond 250
     else
-      respond(500)
+      respond 500
     end
   end
 
   # Store recepient address
   def recipient(full_data)
     if /^RCPT TO:/ =~ full_data.upcase
-      @state.in_progress.recipients["TO"] << Courier::Address.new(
+      in_progress.recipients["TO"] << Courier::Address.new(
         full_data.gsub(/^RCPT TO:\s*/i, "").gsub(/[\r\n]/, "")
       )
       respond(250)
     elsif /^RCPT CC:/ =~ full_data.upcase
-      @state.in_progress.recipients["CC"] << Courier::Address.new(
+      in_progress.recipients["CC"] << Courier::Address.new(
         full_data.gsub(/^RCPT CC:\s*/i, "").gsub(/[\r\n]/, "")
       )
       respond(250)
     elsif /^RCPT BCC:/ =~ full_data.upcase
-      @state.in_progress.recipients["CC"] << Courier::Address.new(
+      in_progress.recipients["CC"] << Courier::Address.new(
         full_data.gsub(/^RCPT BCC:\s*/i, "").gsub(/[\r\n]/, "")
       )
-      respond(250)
+      respond 250
     else
-      respond(500)
+      respond 500
     end
   end
 
   # Mark client sending data
   def data
-    @state.start_data!
-    respond(354)
+    @sending_data = true
+    respond 354
   end
 
   # Reset current session
   def rset
-    @state.reset!
-    respond(250)
+    @in_progress = Courier::Email.new
+    @sending_data = false
+    respond 250
   end
 
   # Append data to incoming mail message
@@ -113,14 +121,17 @@ class Courier::SMTP::Session
   # full_data == "." indicates the end of the message
   def append_data(full_data : String)
     if full_data.gsub(/[\r\n]/, "") == "."
-      log.info "Received mail from #{@state.in_progress.sender.to_s} to #{@state.in_progress.recipients["TO"][0].to_s}"
-      if @state.finalize_mail!
-        respond(250)
+      log.info "Received mail from #{in_progress.sender.to_s} to #{in_progress.recipients["TO"][0].to_s}"
+      if in_progress.valid?
+        @pending_mails << in_progress
+        @in_progress = Courier::Email.new
+        @sending_data = false
+        respond 250
       else
-        respond(554)
+        respond 554
       end
     else
-      @state.in_progress.body = @state.in_progress.body + full_data
+      @in_progress.body = in_progress.body + full_data
     end
   end
 
