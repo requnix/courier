@@ -1,32 +1,33 @@
 # Represents an email sender or receiver
 class Courier::Address
-  getter name : String
-  getter user : String
+  getter display_name : String
+  getter local : String
   getter domain : String
-  getter modifier : String
 
   def initialize(string : String)
-    @name = ""
-    @user = ""
+    @display_name = ""
+    @local = ""
     @domain = ""
-    @modifier = ""
 
-    case string.strip.downcase
-    when "<michael.prins@me.com>"
-      @user = "michael.prins"
-      @domain = "me.com"
+    if match = string.strip.match(/^<?(\w+\+?\w*)@(\w+.\w+)>?$/)
+      @local = match[1].downcase
+      @domain = match[2].downcase
+    elsif match = string.strip.match(/^"(.*)" ?<?(\w+\+?\w*)@(\w+.\w+)>?$/)
+      @display_name = match[1]
+      @local = match[2].downcase
+      @domain = match[3].downcase
     end
   end
 
   def valid?
-    @user.present? && @domain.present?
+    !@local.blank? && !@domain.blank?
   end
 
   def to_s
-    if name.blank?
-      "#{name} <#{user}#{modifier}@#{domain}>"
+    if display_name.blank?
+      "#{local}@#{domain}"
     else
-      "<#{user}#{modifier}@#{domain}>"
+      "\"#{display_name}\" <#{local}@#{domain}>"
     end
   end
 end
